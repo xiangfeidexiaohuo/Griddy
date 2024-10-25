@@ -44,6 +44,12 @@ typedef struct SBIconCoordinate {
     long long row;
 } SBIconCoordinate;
 
+typedef struct SBIconImageInfo {
+    struct CGSize size;
+    double scale;
+    double continuousCornerRadius;
+} SBIconImageInfo;
+
 @interface SBIconListModel : NSObject
 @property (nonatomic, copy) NSArray *icons; 
 @property (assign, nonatomic) SBHIconGridSize gridSize;  
@@ -113,6 +119,7 @@ typedef struct SBIconCoordinate {
 
 @interface SBIconListGridLayout : NSObject 
 @property (readonly, copy, nonatomic) SBHFolderIconVisualConfiguration *folderIconVisualConfiguration;
+@property (readonly, nonatomic) SBIconImageInfo iconImageInfo;
 @end
 
 @interface SBIconGridImage : UIImage

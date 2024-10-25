@@ -1,0 +1,9 @@
+Package: com.mikifp.griddy
+Name: Griddy
+Version: 1.0.3
+Architecture: iphoneos-arm
+Description: Layout your icons anywhere you want!
+Maintainer: mikifp
+Author: mikifp
+Section: Tweaks
+Depends: mobilesubstrate

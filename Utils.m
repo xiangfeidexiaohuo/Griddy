@@ -3,6 +3,9 @@ BOOL needsRefresh;
 
 NSUInteger findFirstOpenIndexInListStartingAt(NSArray *list, SBHIconGridSize gridSize, int start) {
     int size = gridSize.columns * gridSize.rows;
+
+    if(gridSize.columns >= 100 || gridSize.rows >= 100) size = 500;
+
     //create an array that will store icon indexes
     BOOL helperBoolArray[size];
     
@@ -73,8 +76,35 @@ void createNewLocationPrefs(SBIconListModel *model, SBIcon *icon, long long idx)
     GriddyIconLocationPreferences *prefs = [[GriddyIconLocationPreferences alloc] init];
     prefs.index = idx;
     prefs.ogIndex = prefs.index;
-    
-    prefs.gridSize = [model gridSizeForGridSizeClass:icon.gridSizeClass];
+    //turns out gridSizeForGridSizeClass doesn't exist on iOS 15.0 and lower, who knew
+    //will make this a bit nicer int he future
+    if ([model respondsToSelector:@selector(gridSizeForGridSizeClass:)]) {
+        prefs.gridSize = [model gridSizeForGridSizeClass:icon.gridSizeClass];
+    } else {
+        switch(icon.gridSizeClass) {
+        case 0:
+            [prefs setGridSizeColumns:1 rows:1];
+            break;
+        case 1:
+            prefs.gridSize = model.iconGridSizeClassSizes.small;
+            break;
+        case 2:
+            prefs.gridSize = model.iconGridSizeClassSizes.medium;
+            break;
+        case 3:
+            prefs.gridSize = model.iconGridSizeClassSizes.large;
+            break;
+        case 4:
+            prefs.gridSize = model.iconGridSizeClassSizes.newsLargeTall;
+            break;
+        case 5:
+            prefs.gridSize = model.iconGridSizeClassSizes.extraLarge;
+            break;
+        default:
+            [prefs setGridSizeColumns:1 rows:1];
+            break;
+        }
+    }
     //place icon at the end of priority for its given class
     prefs.priority = [icon isKindOfClass:NSClassFromString(@"SBWidgetIcon")] ? 99 : 999;
 
@@ -83,6 +113,7 @@ void createNewLocationPrefs(SBIconListModel *model, SBIcon *icon, long long idx)
 }
 
 NSArray *reorderIconListBasedOnCustomIndex(NSArray *iconList, int size) {
+    
     //create a temporary array that will hold icon entries
     int tempArr[size];
     for (int i = 0; i < size; i++) {
@@ -231,7 +262,7 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
         while (!checkValidIndexForIconSize(info, writeSize, writeIndex)) {
             needsRefresh = YES;
             //adding a limit just in case it can't find a spot
-            if (limit > 150) {
+            if (limit > 200) {
                 writeIndex = 0;
                 break;
             }
@@ -246,7 +277,9 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
         }
         
         //only save to location prefs if we have nothing in dragged
-        if ([draggedIcons count] == 0) {
+        //v1.0.3 added isEditingLayout to support Atria glitch where on startup
+        //grid would be smaller than it should and it would  overwrite locations
+        if ([draggedIcons count] == 0 && isEditingLayout) {
             prefs.index = writeIndex;
             prefs.ogIndex = writeIndex;
         }
@@ -276,7 +309,7 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
 
     //if we need to sort, sort and redraw
     if (shouldRedrawList) {
-        reorderIconListBasedOnCustomIndex(iconList, info.gridSize.columns * info.gridSize.rows); 
+        iconList = [reorderIconListBasedOnCustomIndex(iconList, info.gridSize.columns * info.gridSize.rows) mutableCopy]; 
         shouldRedrawList = NO;
         return patchGridCellInfoForIconList(iconList, info, model);
     }

@@ -15,6 +15,10 @@ BOOL creatingNewIcon = NO;
 int screenOrientation = -1;
 BOOL shouldGivePriority = YES;
 NSUserDefaults *userDefaults;
+//three variables used to fix support for certain folder tweaks
+CGRect gridWrapperSize;
+BOOL shouldPatchFolderIcon = YES;
+BOOL patchFoldersChecked = NO;
 
 %hook SBIconListModel
 %property (assign, nonatomic) BOOL griddyShouldPatch; 
@@ -322,7 +326,8 @@ NSUserDefaults *userDefaults;
     SBIconListModel *model = folder.firstList;
 
     if (!model.griddyShouldPatch) return %orig;
-    
+    if (!shouldPatchFolderIcon) return %orig;
+
     if ([model.icons count] > arg0) {
         SBIcon *icon = model.icons[arg0];
         GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
@@ -351,6 +356,25 @@ NSUserDefaults *userDefaults;
 
     if (!workingModel.griddyShouldPatch) return %orig;
 
+    //checks for Primal Folders 2 settings, and decides based on this if it should patch the folder icon
+    //allows for Primal folders behaviour or Griddy behaviour
+    if (!patchFoldersChecked) {
+        NSDictionary *primalFoldersDict = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/Preferences/com.ichitaso.primalfolder2.plist"];
+        if (primalFoldersDict == nil) {
+            shouldPatchFolderIcon = YES;
+        } else {
+            if ([primalFoldersDict[@"keepFolder"] boolValue]) {
+               shouldPatchFolderIcon = YES;
+            } else {
+                shouldPatchFolderIcon = NO;
+            }
+        }
+        if (![NSClassFromString(@"SBFloatyFolderScrollView") instancesRespondToSelector:@selector(foldrCloseFolder:)]) shouldPatchFolderIcon = YES;
+        patchFoldersChecked = YES;
+    }
+
+    if (!shouldPatchFolderIcon) return %orig;
+
     //this solution is a bit scuffed, because the image has to be an instance of SBIconGridImage, 
     //which is very difficult to create. Thus, we instead will overwrite the existing image
     SBIconView *iconView = self.folderIconImageView.iconView;
@@ -363,11 +387,11 @@ NSUserDefaults *userDefaults;
     CGSize size = miniIconConfiguration.gridCellSize;
     CGSize spacing = miniIconConfiguration.gridCellSpacing;
 
+    CGSize perIconSpace = CGSizeMake(size.width + spacing.width, size.height + spacing.height);
     CGSize newSize;
 
-    //sometimes(mostly on ios15), the dimesniosn would be zeroed out
-    if (self.frame.size.width == 0 || self.frame.size.height == 0) newSize = CGSizeMake(45, 45);
-    else newSize = CGSizeMake(self.frame.size.width, self.frame.size.height);
+    //v1.0.3 changes this to base size off nuber of icons, not just a set value
+    newSize = CGSizeMake((perIconSpace.width * (gridImageRef.numberOfRows-1)) + size.width, (perIconSpace.height *(gridImageRef.numberOfColumns-1)) + size.height);
 
     UIGraphicsBeginImageContextWithOptions(newSize, NO, gridImageRef.scale);
 
@@ -386,20 +410,47 @@ NSUserDefaults *userDefaults;
         if (img == nil) img = [imageCache valueForKey:@"_genericMiniGridImage"];
         if (img == nil) continue;
 
-        [img drawInRect:CGRectMake(col * (size.width + spacing.width), row * (size.height + spacing.height), size.width, size.height)];
+        [img drawInRect:CGRectMake(col * perIconSpace.width, row * perIconSpace.height, size.width, size.height)];
     }
 
     UIImage *newImg = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     //overwrite the old image by running an init
     //this is very scuffed, but it seems to work, and we manage get around making an new instance of SBIconGridImage
+    //update as of v1.0.3: this seems to work only most of the time
+    //occasionally, it will mess up and cause a crash intp safe mode
+    //I am not sure why this is, and thus have not implemented a fix, but instead took this approach of 
+    //retrying a couple times in an attempt to minimize crashes while still preserving functionality
     if (newImg != nil) {
-        gridImageRef = [gridImageRef initWithCGImage:newImg.CGImage scale:gridImageRef.scale orientation:UIImageOrientationUp];
+        for (int i = 0; i < 10; i++) {
+            BOOL success = YES;
+            @try {
+                gridImageRef = [gridImageRef initWithCGImage:newImg.CGImage scale:gridImageRef.scale orientation:UIImageOrientationUp];
+            }
+            @catch (NSException * e) {
+                NSLog(@"Griddy exception with creating folder icon: %@", e);
+                success = NO;
+            }
+            if (success) break;
+        }
         elem.gridImage = gridImageRef;
+        //some folder tweaks change the size of the _SBGridWrapperView and make them very tiny, 
+        //here we are simply generating the correct size and will set it in layoutSubviews
+        float neededWidth = (miniIconLayout.iconImageInfo).size.width * 0.75;
+        float neededHeight = (miniIconLayout.iconImageInfo).size.height * 0.75;
+        gridWrapperSize = CGRectMake( (0.166666 * neededWidth), (0.166666 * neededHeight), neededWidth, neededHeight);
     }
+
     
     return %orig(gridImageRef);
 }
+
+- (void)layoutSubviews {
+    %orig;
+    //this if statement is a bit sketchy, and I will try to clean it up in a future version
+    if (![self.folderIconImageView isKindOfClass:NSClassFromString(@"SBHLibraryAdditionalItemsIndicatorIconImageView")] && gridWrapperSize.size.width != 0 && shouldPatchFolderIcon) self.frame = gridWrapperSize;
+}
+
 
 %end
 
@@ -413,7 +464,8 @@ NSUserDefaults *userDefaults;
         self.model.griddyShouldPatch = NO;
 
     //we will only use the dock for deciding rotation
-    if (![self.iconLocation isEqualToString:@"SBIconLocationDock"]) {
+    //SBIconLocationFloatingDockSuggestions is for floating dock
+    if (!([self.iconLocation isEqualToString:@"SBIconLocationDock"] || [self.iconLocation isEqualToString:@"SBIconLocationFloatingDockSuggestions"])) {
         return %orig;
     }
 
@@ -451,6 +503,6 @@ NSUserDefaults *userDefaults;
     userDefaults = [NSUserDefaults standardUserDefaults]; 
     portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
     landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
-    NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets"};
-    patchLocations = [NSArray arrayWithObjects:temp count:4];
+    NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets", @"SBIconLocationFloatingDockSuggestions"};
+    patchLocations = [NSArray arrayWithObjects:temp count:5];
 }
