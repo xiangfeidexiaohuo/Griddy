@@ -15,10 +15,14 @@ BOOL creatingNewIcon = NO;
 int screenOrientation = -1;
 BOOL shouldGivePriority = YES;
 NSUserDefaults *userDefaults;
+NSUserDefaults *primalFolder;
+NSUserDefaults *helloFolder;
 //three variables used to fix support for certain folder tweaks
 CGRect gridWrapperSize;
 BOOL shouldPatchFolderIcon = YES;
 BOOL patchFoldersChecked = NO;
+BOOL hasPrimalFolder = NO;
+BOOL helloFolderEnable = NO;
 
 %hook SBIconListModel
 %property (assign, nonatomic) BOOL griddyShouldPatch; 
@@ -38,7 +42,7 @@ BOOL patchFoldersChecked = NO;
 }
 
 //addIcon can run on respring, but also later on when dragging icons between pages
-- (BOOL)addIcon:(SBIcon *)icon options:(NSUInteger)arg1  {
+- (BOOL)addIcon:(SBIcon *)icon options:(NSUInteger)arg1 {
     if ([self.parent isKindOfClass:NSClassFromString(@"SBHLibraryCategoryFolder")] || self.gridSize.rows > 32767) return %orig;
 
     //if an entry doesnt exist for the icon we are adding, import from save or create a new one
@@ -53,7 +57,7 @@ BOOL patchFoldersChecked = NO;
             } else {
                 createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : 0);
             }
-        } else if(screenOrientation == 1 && landscapeSavedDict) {
+        } else if (screenOrientation == 1 && landscapeSavedDict) {
             if (landscapeSavedDict[icon.uniqueIdentifier]) {
                 createNewLocationPrefs(self, icon, landscapeSavedDict[icon.uniqueIdentifier].unsignedIntegerValue);
             } else {
@@ -158,7 +162,7 @@ BOOL patchFoldersChecked = NO;
 
 //this runs any time an icon preview is generated for dragging
 //ie, this runs for the first, second, third... icon you pick up 
-- (id)dragInteraction:(id)arg1 previewForLiftingItem:(id)arg2 session:(_UIDropSessionImpl *)dropSession  {
+- (id)dragInteraction:(id)arg1 previewForLiftingItem:(id)arg2 session:(_UIDropSessionImpl *)dropSession {
     if (!self.icon) return %orig;
 
     id ret = %orig;
@@ -235,7 +239,7 @@ BOOL patchFoldersChecked = NO;
             shouldGivePriority = YES;
         }
         //set the proposed index for each icon we are dragging
-        for(int i = 0; i < [draggedIcons count]; i++) {
+        for (int i = 0; i < [draggedIcons count]; i++) {
             locationPrefs[draggedIcons[i].uniqueIdentifier].index = proposedIndex;
         }
     } else {
@@ -322,6 +326,8 @@ BOOL patchFoldersChecked = NO;
 %hook SBFolderIconImageView
 //this patches the animation for opening and closing a folder(the zoom in and out)
 - (CGRect)frameForMiniIconAtIndex:(NSUInteger)arg0  {
+    if (helloFolderEnable) return %orig;
+
     SBFolder *folder = ((SBFolderIcon *)self.icon).folder;
     SBIconListModel *model = folder.firstList;
 
@@ -359,11 +365,10 @@ BOOL patchFoldersChecked = NO;
     //checks for Primal Folders 2 settings, and decides based on this if it should patch the folder icon
     //allows for Primal folders behaviour or Griddy behaviour
     if (!patchFoldersChecked) {
-        NSDictionary *primalFoldersDict = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/Preferences/com.ichitaso.primalfolder2.plist"];
-        if (primalFoldersDict == nil) {
+        if (primalFolder == nil && !hasPrimalFolder) {
             shouldPatchFolderIcon = YES;
         } else {
-            if ([primalFoldersDict[@"keepFolder"] boolValue]) {
+            if ([primalFolder boolForKey:@"keepFolder"]) {
                shouldPatchFolderIcon = YES;
             } else {
                 shouldPatchFolderIcon = NO;
@@ -397,8 +402,16 @@ BOOL patchFoldersChecked = NO;
 
     if (UIGraphicsGetCurrentContext() == nil) return %orig;
 
+    // Fix folder icon images issue
+    int wantFolderGriddy = 0;
+    for (SBIcon *icon in workingModel.icons) {
+        GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
+        wantFolderGriddy += prefs.index;
+    }
+    if (wantFolderGriddy < 1) return %orig;
+
     //draw mini icons for the custom locations
-    for(SBIcon *icon in workingModel.icons) {
+    for (SBIcon *icon in workingModel.icons) {
         GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
         if (prefs == nil) continue;
 
@@ -498,11 +511,18 @@ BOOL patchFoldersChecked = NO;
 
 //setup variables and load saves
 %ctor {
-    locationPrefs = [[NSMutableDictionary alloc] init]; 
-    draggedIcons = [[NSMutableOrderedSet alloc] init];  
-    userDefaults = [NSUserDefaults standardUserDefaults]; 
+    locationPrefs = [[NSMutableDictionary alloc] init];
+    draggedIcons = [[NSMutableOrderedSet alloc] init];
+    userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
     portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
     landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
     NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets", @"SBIconLocationFloatingDockSuggestions"};
     patchLocations = [NSArray arrayWithObjects:temp count:5];
+
+    primalFolder = [[NSUserDefaults alloc] initWithSuiteName:@"com.ichitaso.primalfolder2"];
+    hasPrimalFolder = [[NSFileManager defaultManager] fileExistsAtPath:jbroot(@"/Library/MobileSubstrate/DynamicLibraries/PrimalFolder2.dylib")];
+    helloFolder = [[NSUserDefaults alloc] initWithSuiteName:@"cn.zqbb.0rzFolder"];
+    if (helloFolder) {
+        helloFolderEnable = (![helloFolder dictionaryForKey:@"wantsEnable"] || [helloFolder boolForKey:@"wantsEnable"] == YES) ? YES : NO;
+    }
 }

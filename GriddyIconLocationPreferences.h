@@ -15,7 +15,6 @@
 // 100-199 are placeholders
 // 200+ are normal icons
 @property (nonatomic, assign) NSUInteger priority;
-
--(void)setGridSizeColumns:(unsigned short)columns rows:(unsigned short)rows;
--(void)setIndexOffsetColumns:(unsigned short)columns rows:(unsigned short)rows;
+- (void)setGridSizeColumns:(unsigned short)columns rows:(unsigned short)rows;
+- (void)setIndexOffsetColumns:(unsigned short)columns rows:(unsigned short)rows;
 @end

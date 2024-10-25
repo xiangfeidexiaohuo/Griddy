@@ -1,5 +1,5 @@
-#include <UIKit/UIKit.h>
-
+@import UIKit;
+#include <roothide.h>
 // stores entries for icons, where key is the uniqueidentifier for the icon and entry is GriddyIconLocationPreferences
 extern NSMutableDictionary *locationPrefs;
 // save for portrait icon locations
@@ -56,7 +56,7 @@ typedef struct SBIconImageInfo {
 @property (assign, nonatomic) id parent; 
 @property (nonatomic,readonly) SBHIconGridSizeClassSizes iconGridSizeClassSizes;  
 @property (assign, nonatomic) BOOL griddyShouldPatch; 
--(struct SBHIconGridSize )gridSizeForGridSizeClass:(NSUInteger)arg0 ;
+- (struct SBHIconGridSize )gridSizeForGridSizeClass:(NSUInteger)arg0 ;
 @end
 
 @interface SBIcon : NSObject
