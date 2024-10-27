@@ -386,7 +386,7 @@ void transferGriddySave() {
     portraitSavedDict = [oldUserDefaults dictionaryForKey:@"GriddyPortraitSave"];
     landscapeSavedDict = [oldUserDefaults dictionaryForKey:@"GriddyLandscapeSave"];
 
-    NSUserDefaults *newUserDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
+    NSUserDefaults *newUserDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.dao.griddy"];
     NSMutableDictionary *tempDict = [[NSMutableDictionary alloc] init];
     //transfer portrait save
     for (NSString *key in portraitSavedDict) {

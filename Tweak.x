@@ -462,7 +462,7 @@ BOOL hasLoadedPrefs = NO;
 
     // new location to save data :D
     // thank you to Ichitaso for this: https://github.com/ichitaso
-    userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
+    userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.dao.griddy"];
 
     portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
     landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];

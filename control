@@ -1,9 +1,12 @@
-Package: com.mikifp.griddy
-Name: Griddy
+Package: com.dao.griddy
+Name: Griddy 随意摆(rootless)
 Version: 1.0.5
 Architecture: iphoneos-arm
-Description: Layout your icons anywhere you want!
+Description: 让你的程序图标在桌面随意摆放；根据开源重新编译。
 Maintainer: mikifp
 Author: mikifp
-Section: Tweaks
+Section: 嗨-工具
 Depends: mobilesubstrate
+Conflicts: com.mikifp.griddy, xyz.cypwn.griddy
+Sileodepiction: https://xiangfeidexiaohuo.github.io/sileodepiction/griddy/js.json
+
