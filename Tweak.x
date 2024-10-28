@@ -19,9 +19,11 @@ NSUserDefaults *userDefaults;
 CGRect gridWrapperSize;
 BOOL shouldPatchFolderIcon = YES;
 BOOL patchFoldersChecked = NO;
+NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
 
 %hook SBIconListModel
 %property (assign, nonatomic) BOOL griddyShouldPatch; 
+%property (assign, nonatomic) BOOL griddyNeedsRefreshFolderImage;
 
 //SBIconListGridCellInfo is essentially the template for laying out icons
 //it matches up icon indexes(indexes of icons in the model's icon array)
@@ -38,7 +40,7 @@ BOOL patchFoldersChecked = NO;
 }
 
 //addIcon can run on respring, but also later on when dragging icons between pages
-- (BOOL)addIcon:(SBIcon *)icon options:(NSUInteger)arg1  {
+- (BOOL)addIcon:(SBIcon *)icon options:(NSUInteger)arg1 {
     if ([self.parent isKindOfClass:NSClassFromString(@"SBHLibraryCategoryFolder")] || self.gridSize.rows > 32767) return %orig;
 
     //if an entry doesnt exist for the icon we are adding, import from save or create a new one
@@ -51,16 +53,19 @@ BOOL patchFoldersChecked = NO;
             if (portraitSavedDict[icon.uniqueIdentifier]) {
                 createNewLocationPrefs(self, icon, portraitSavedDict[icon.uniqueIdentifier].unsignedIntegerValue);
             } else {
-                createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : 0);
+                createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : [self.icons count]);
+                locationPrefs[icon.uniqueIdentifier].priority = 1000;
             }
         } else if(screenOrientation == 1 && landscapeSavedDict) {
             if (landscapeSavedDict[icon.uniqueIdentifier]) {
                 createNewLocationPrefs(self, icon, landscapeSavedDict[icon.uniqueIdentifier].unsignedIntegerValue);
             } else {
-                createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : 0);
+                createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : [self.icons count]);
+                locationPrefs[icon.uniqueIdentifier].priority = 1000;
             }
         } else {
-            createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : 0);
+            createNewLocationPrefs(self, icon, ([draggedIcons containsObject:icon]) ? proposedIndex : [self.icons count]);
+            locationPrefs[icon.uniqueIdentifier].priority = 1000;
         }
     }
     
@@ -158,7 +163,7 @@ BOOL patchFoldersChecked = NO;
 
 //this runs any time an icon preview is generated for dragging
 //ie, this runs for the first, second, third... icon you pick up 
-- (id)dragInteraction:(id)arg1 previewForLiftingItem:(id)arg2 session:(_UIDropSessionImpl *)dropSession  {
+- (id)dragInteraction:(id)arg1 previewForLiftingItem:(id)arg2 session:(_UIDropSessionImpl *)dropSession {
     if (!self.icon) return %orig;
 
     id ret = %orig;
@@ -321,7 +326,7 @@ BOOL patchFoldersChecked = NO;
 
 %hook SBFolderIconImageView
 //this patches the animation for opening and closing a folder(the zoom in and out)
-- (CGRect)frameForMiniIconAtIndex:(NSUInteger)arg0  {
+- (CGRect)frameForMiniIconAtIndex:(NSUInteger)arg0 {
     SBFolder *folder = ((SBFolderIcon *)self.icon).folder;
     SBIconListModel *model = folder.firstList;
 
@@ -356,93 +361,38 @@ BOOL patchFoldersChecked = NO;
 
     if (!workingModel.griddyShouldPatch) return %orig;
 
-    //checks for Primal Folders 2 settings, and decides based on this if it should patch the folder icon
-    //allows for Primal folders behaviour or Griddy behaviour
+    // checks a bunch of fodler tweaks to determine if it should patch the image
     if (!patchFoldersChecked) {
-        NSDictionary *primalFoldersDict = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/Preferences/com.ichitaso.primalfolder2.plist"];
-        if (primalFoldersDict == nil) {
-            shouldPatchFolderIcon = YES;
-        } else {
-            if ([primalFoldersDict[@"keepFolder"] boolValue]) {
-               shouldPatchFolderIcon = YES;
-            } else {
-                shouldPatchFolderIcon = NO;
-            }
-        }
-        if (![NSClassFromString(@"SBFloatyFolderScrollView") instancesRespondToSelector:@selector(foldrCloseFolder:)]) shouldPatchFolderIcon = YES;
+        shouldPatchFolderIcon = determineFolderPatching();
         patchFoldersChecked = YES;
     }
 
     if (!shouldPatchFolderIcon) return %orig;
 
-    //this solution is a bit scuffed, because the image has to be an instance of SBIconGridImage, 
-    //which is very difficult to create. Thus, we instead will overwrite the existing image
+    // version 1.0.4 moves a lot of this code to it's own function
+    // this is because we now create iamges only if we need to, and cache them for use later
+    // this code was crashing on 1.0.3 and lower, and I believe it is because we were generating too many images
     SBIconView *iconView = self.folderIconImageView.iconView;
     SBFolderIconImageCache *imageCache = iconView.folderIconImageCache;
-    NSMapTable *miniGridImages = [imageCache valueForKey:@"_cachedMiniGridImages"];
 
     SBIconListGridLayout *miniIconLayout = (SBIconListGridLayout *)gridImageRef.listLayout;
-    SBHFolderIconVisualConfiguration *miniIconConfiguration = miniIconLayout.folderIconVisualConfiguration;
 
-    CGSize size = miniIconConfiguration.gridCellSize;
-    CGSize spacing = miniIconConfiguration.gridCellSpacing;
-
-    CGSize perIconSpace = CGSizeMake(size.width + spacing.width, size.height + spacing.height);
-    CGSize newSize;
-
-    //v1.0.3 changes this to base size off nuber of icons, not just a set value
-    newSize = CGSizeMake((perIconSpace.width * (gridImageRef.numberOfRows-1)) + size.width, (perIconSpace.height *(gridImageRef.numberOfColumns-1)) + size.height);
-
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, gridImageRef.scale);
-
-    if (UIGraphicsGetCurrentContext() == nil) return %orig;
-
-    //draw mini icons for the custom locations
-    for(SBIcon *icon in workingModel.icons) {
-        GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
-        if (prefs == nil) continue;
-
-        int row = prefs.index / gridImageRef.numberOfRows;
-        int col = prefs.index % gridImageRef.numberOfColumns;
-
-        UIImage *img = [miniGridImages objectForKey:icon];
-        
-        if (img == nil) img = [imageCache valueForKey:@"_genericMiniGridImage"];
-        if (img == nil) continue;
-
-        [img drawInRect:CGRectMake(col * perIconSpace.width, row * perIconSpace.height, size.width, size.height)];
+    //get image from cache or generate new one
+    SBIconGridImage *griddyImage = folderImageCache[folderIconRef.uniqueIdentifier];
+    if (workingModel.griddyNeedsRefreshFolderImage || griddyImage == nil) {
+        folderImageCache[folderIconRef.uniqueIdentifier] = generateNewFolderImageForModel(workingModel, gridImageRef, imageCache, miniIconLayout);
+        griddyImage = folderImageCache[folderIconRef.uniqueIdentifier];
     }
 
-    UIImage *newImg = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    //overwrite the old image by running an init
-    //this is very scuffed, but it seems to work, and we manage get around making an new instance of SBIconGridImage
-    //update as of v1.0.3: this seems to work only most of the time
-    //occasionally, it will mess up and cause a crash intp safe mode
-    //I am not sure why this is, and thus have not implemented a fix, but instead took this approach of 
-    //retrying a couple times in an attempt to minimize crashes while still preserving functionality
-    if (newImg != nil) {
-        for (int i = 0; i < 10; i++) {
-            BOOL success = YES;
-            @try {
-                gridImageRef = [gridImageRef initWithCGImage:newImg.CGImage scale:gridImageRef.scale orientation:UIImageOrientationUp];
-            }
-            @catch (NSException * e) {
-                NSLog(@"Griddy exception with creating folder icon: %@", e);
-                success = NO;
-            }
-            if (success) break;
-        }
-        elem.gridImage = gridImageRef;
-        //some folder tweaks change the size of the _SBGridWrapperView and make them very tiny, 
-        //here we are simply generating the correct size and will set it in layoutSubviews
-        float neededWidth = (miniIconLayout.iconImageInfo).size.width * 0.75;
-        float neededHeight = (miniIconLayout.iconImageInfo).size.height * 0.75;
-        gridWrapperSize = CGRectMake( (0.166666 * neededWidth), (0.166666 * neededHeight), neededWidth, neededHeight);
-    }
+    if (griddyImage == nil) return %orig;
 
-    
-    return %orig(gridImageRef);
+    elem.gridImage = griddyImage;
+
+    float neededWidth = (miniIconLayout.iconImageInfo).size.width * 0.75;
+    float neededHeight = (miniIconLayout.iconImageInfo).size.height * 0.75;
+
+    gridWrapperSize = CGRectMake( (0.166666 * neededWidth), (0.166666 * neededHeight), neededWidth, neededHeight);
+    return %orig(griddyImage);
 }
 
 - (void)layoutSubviews {
@@ -500,9 +450,21 @@ BOOL patchFoldersChecked = NO;
 %ctor {
     locationPrefs = [[NSMutableDictionary alloc] init]; 
     draggedIcons = [[NSMutableOrderedSet alloc] init];  
-    userDefaults = [NSUserDefaults standardUserDefaults]; 
+
+    // transfer save to new location
+    if ([[NSUserDefaults standardUserDefaults] dictionaryForKey:@"GriddyPortraitSave"] != nil 
+    || [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"GriddyLandscapeSave"] != nil) transferGriddySave();
+
+    // new location to save data :D
+    // thank you to Ichitaso for this: https://github.com/ichitaso
+    userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
+
     portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
     landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
+
+
     NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets", @"SBIconLocationFloatingDockSuggestions"};
     patchLocations = [NSArray arrayWithObjects:temp count:5];
+
+    folderImageCache = [[NSMutableDictionary alloc] init];
 }

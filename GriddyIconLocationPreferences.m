@@ -17,14 +17,14 @@
     return self;
 }
 
--(void)setGridSizeColumns:(unsigned short)columns rows:(unsigned short)rows {
+- (void)setGridSizeColumns:(unsigned short)columns rows:(unsigned short)rows {
     SBHIconGridSize temp;
     temp.columns = columns;
     temp.rows = rows;
     self.gridSize = temp;
 }
 
--(void)setIndexOffsetColumns:(unsigned short)columns rows:(unsigned short)rows {
+- (void)setIndexOffsetColumns:(unsigned short)columns rows:(unsigned short)rows {
     SBHIconGridSize temp;
     temp.columns = columns;
     temp.rows = rows;

@@ -180,6 +180,7 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
     //moved dragged icons up in priority to be rendered first
     if (shouldGivePriority && shouldPushDraggedIcons) {
         needsRefresh = YES;
+        model.griddyNeedsRefreshFolderImage = YES;
         SBIcon *tempIcon;
         for (int i = 0; i < [draggedIcons count]; i++) {
             tempIcon = draggedIcons[i];
@@ -341,4 +342,112 @@ long long calculateGridCellIndexForPoint(CGPoint point, CGRect workingSize, SBHI
     }
 
     return proposedIndex;
+}
+
+//check different folder tweaks to determine if we should patch folder icons or not
+BOOL determineFolderPatching() {
+    BOOL tempShouldPatch;
+    // Primal Folders 2 check, big thanks to Ichitaso for this snippet
+    // https://github.com/ichitaso
+    NSDictionary *primalFolder = [NSDictionary dictionaryWithContentsOfFile:jbroot(@"/var/mobile/Library/Preferences/com.ichitaso.primalfolder2.plist")];
+    BOOL hasPrimalFolders = [[NSFileManager defaultManager] fileExistsAtPath:jbroot(@"/Library/MobileSubstrate/DynamicLibraries/PrimalFolder2.dylib")];  
+    
+    if (!hasPrimalFolders || primalFolder == nil) {
+            tempShouldPatch = YES;
+    } else {
+        if ([primalFolder[@"keepFolder"] boolValue]) {
+            tempShouldPatch = YES;
+        } else {
+            tempShouldPatch = NO;
+        }
+    }
+    if (!tempShouldPatch) return NO;
+
+    //Hello Folder check, big thanks to w2599 for this snippet
+    //https://github.com/w2599
+    NSDictionary *helloFolder = [NSDictionary dictionaryWithContentsOfFile:jbroot(@"/var/mobile/Library/Preferences/cn.zqbb.0rzFolder.plist")];
+    if (helloFolder == nil) {
+        tempShouldPatch = YES;
+    } else {
+        tempShouldPatch = ![helloFolder[@"wantsEnable"] boolValue];
+    }
+    if (!tempShouldPatch) return NO;
+
+    //Bolders Reborn check
+    NSDictionary *boldersReborn = [NSDictionary dictionaryWithContentsOfFile:jbroot(@"/var/mobile/Library/Preferences/com.nightwind.boldersrebornprefs.plist")];
+    BOOL hasBoldersReborn = [[NSFileManager defaultManager] fileExistsAtPath:jbroot(@"/Library/MobileSubstrate/DynamicLibraries/BoldersReborn.dylib")];  
+    if (!hasBoldersReborn || boldersReborn == nil) {
+        tempShouldPatch = YES;
+    } else {
+        tempShouldPatch = ![boldersReborn[@"tweakEnabled"] boolValue];
+    }
+    if (!tempShouldPatch) return NO;
+
+    return YES;
+}
+//moving save data over to it's own .plist
+void transferGriddySave() {
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
+    landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
+
+    NSUserDefaults *newUserDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
+    NSMutableDictionary *tempDict = [[NSMutableDictionary alloc] init];
+    //transfer portrait save
+    for (NSString *key in portraitSavedDict) {
+        tempDict[key] = portraitSavedDict[key];
+    }
+    [newUserDefaults setObject:tempDict forKey:@"GriddyPortraitSave"];
+
+    [tempDict removeAllObjects];
+    //transfer lansdscape save
+    for (NSString *key in landscapeSavedDict) {
+        tempDict[key] = landscapeSavedDict[key];
+    }
+    [newUserDefaults setObject:tempDict forKey:@"GriddyLandscapeSave"];
+
+    [userDefaults removeObjectForKey:@"GriddyPortraitSave"];
+    [userDefaults removeObjectForKey:@"GriddyLandscapeSave"];
+}
+
+//generate new image for a folder icon
+//code is essentially the same as it used to be
+//however, version 1.0.4 caches the generated images and only creates a new one if it needs to
+SBIconGridImage *generateNewFolderImageForModel(SBIconListModel *model, SBIconGridImage *gridImageRef, SBFolderIconImageCache *imageCache, SBIconListGridLayout *miniIconLayout) {
+    
+    NSMapTable *miniGridImages = [imageCache valueForKey:@"_cachedMiniGridImages"];
+
+    SBHFolderIconVisualConfiguration *miniIconConfiguration = miniIconLayout.folderIconVisualConfiguration;
+
+    CGSize size = miniIconConfiguration.gridCellSize;
+    CGSize spacing = miniIconConfiguration.gridCellSpacing;
+
+    CGSize perIconSpace = CGSizeMake(size.width + spacing.width, size.height + spacing.height);
+    CGSize newSize;
+
+    newSize = CGSizeMake((perIconSpace.width * (gridImageRef.numberOfRows-1)) + size.width, (perIconSpace.height *(gridImageRef.numberOfColumns-1)) + size.height);
+
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, gridImageRef.scale);
+
+    if (UIGraphicsGetCurrentContext() == nil) return nil;
+
+    for(SBIcon *icon in model.icons) {
+        GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
+        if (prefs == nil) continue;
+
+        int row = prefs.index / gridImageRef.numberOfRows;
+        int col = prefs.index % gridImageRef.numberOfColumns;
+
+        UIImage *img = [miniGridImages objectForKey:icon];
+        
+        if (img == nil) img = [imageCache valueForKey:@"_genericMiniGridImage"];
+        if (img == nil) continue;
+
+        [img drawInRect:CGRectMake(col * perIconSpace.width, row * perIconSpace.height, size.width, size.height)];
+    }
+
+    UIImage *newImg = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+
+    return [gridImageRef initWithCGImage:newImg.CGImage scale:gridImageRef.scale orientation:UIImageOrientationUp];
 }

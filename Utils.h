@@ -61,3 +61,23 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
  * @return The calculated grid cell index for the point, or a fallback index if invalid.
  */
 long long calculateGridCellIndexForPoint(CGPoint point, CGRect workingSize, SBHIconGridSize workingGridSize, SBHIconGridSize indexOffset, SBHIconGridSize iconSize);
+
+/**
+ * Tests different tweaks thay may or may not be installed to see if Griddy should patch folder previews
+ */
+BOOL determineFolderPatching();
+
+/**
+ * Transfer Griddy portrait and landscape saves to new location
+ */
+void transferGriddySave();
+
+/**
+ * Generate new image for a given folder model
+ * 
+ * @param model SBIconListModel for the folder we want to create an icon for
+ * @param gridImageRef SBIconGridImage instance of the original folder icon image
+ * @param imageCache SBFolderIconImageCache of all icon images
+ * @param miniIconLayout SBIconListGridLayout describing the layout fo mini icons
+ */
+SBIconGridImage *generateNewFolderImageForModel(SBIconListModel *model, SBIconGridImage *gridImageRef, SBFolderIconImageCache *imageCache, SBIconListGridLayout *miniIconLayout);

@@ -1,4 +1,5 @@
-#include <UIKit/UIKit.h>
+@import UIKit;
+#include <roothide.h>
 
 // stores entries for icons, where key is the uniqueidentifier for the icon and entry is GriddyIconLocationPreferences
 extern NSMutableDictionary *locationPrefs;
@@ -24,7 +25,10 @@ extern int screenOrientation;
 extern BOOL shouldGivePriority;
 // determines if we need to sort by priority before laying out icons
 extern BOOL needsRefresh;
-
+// decides whether to patch folder icons or not
+extern BOOL shouldPatchFolderIcon;
+// determines whether we already checked if folder icons should be patched, only check once per reboot
+extern BOOL patchFoldersChecked;
 
 typedef struct SBHIconGridSize {
     unsigned short columns;
@@ -56,7 +60,8 @@ typedef struct SBIconImageInfo {
 @property (assign, nonatomic) id parent; 
 @property (nonatomic,readonly) SBHIconGridSizeClassSizes iconGridSizeClassSizes;  
 @property (assign, nonatomic) BOOL griddyShouldPatch; 
--(struct SBHIconGridSize )gridSizeForGridSizeClass:(NSUInteger)arg0 ;
+@property (assign, nonatomic) BOOL griddyNeedsRefreshFolderImage;
+- (struct SBHIconGridSize )gridSizeForGridSizeClass:(NSUInteger)arg0 ;
 @end
 
 @interface SBIcon : NSObject
