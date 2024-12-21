@@ -20,6 +20,8 @@ CGRect gridWrapperSize;
 BOOL shouldPatchFolderIcon = YES;
 BOOL patchFoldersChecked = NO;
 NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
+BOOL griddyImageSuccess = NO;
+BOOL hasLoadedPrefs = NO;
 
 %hook SBIconListModel
 %property (assign, nonatomic) BOOL griddyShouldPatch; 
@@ -379,9 +381,14 @@ NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
 
     //get image from cache or generate new one
     SBIconGridImage *griddyImage = folderImageCache[folderIconRef.uniqueIdentifier];
-    if (workingModel.griddyNeedsRefreshFolderImage || griddyImage == nil) {
-        folderImageCache[folderIconRef.uniqueIdentifier] = generateNewFolderImageForModel(workingModel, gridImageRef, imageCache, miniIconLayout);
-        griddyImage = folderImageCache[folderIconRef.uniqueIdentifier];
+
+    if (workingModel.griddyNeedsRefreshFolderImage || griddyImage == nil || !hasLoadedPrefs) {
+        SBIconGridImage *tempImage = generateNewFolderImageForModel(workingModel, gridImageRef, imageCache, miniIconLayout);
+        if(griddyImageSuccess == YES) {
+            workingModel.griddyNeedsRefreshFolderImage = NO;
+            folderImageCache[folderIconRef.uniqueIdentifier] = tempImage;
+            griddyImage = folderImageCache[folderIconRef.uniqueIdentifier];
+        }
     }
 
     if (griddyImage == nil) return %orig;
@@ -415,13 +422,12 @@ NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
 
     //we will only use the dock for deciding rotation
     //SBIconLocationFloatingDockSuggestions is for floating dock
-    if (!([self.iconLocation isEqualToString:@"SBIconLocationDock"] || [self.iconLocation isEqualToString:@"SBIconLocationFloatingDockSuggestions"])) {
+    if (!([self.iconLocation isEqualToString:@"SBIconLocationDock"] || [self.iconLocation isEqualToString:@"SBIconLocationFloatingDock"])) {
         return %orig;
     }
 
     //load corresponding saved state
     if ((self.orientation == 1 || self.orientation == 2) && screenOrientation != 0) {
-
         screenOrientation = 0;
         portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
 
@@ -431,7 +437,6 @@ NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
             }
         }
     } else if ((self.orientation == 3 || self.orientation == 4) && screenOrientation != 1) {
-
         screenOrientation = 1;
         landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
 
@@ -441,7 +446,7 @@ NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
             }
         }
     }
-
+    hasLoadedPrefs = YES;
     return %orig;
 }
 %end
@@ -463,7 +468,7 @@ NSMutableDictionary<NSString *, SBIconGridImage *> *folderImageCache;
     landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
 
 
-    NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets", @"SBIconLocationFloatingDockSuggestions"};
+    NSString *temp[] = {@"SBIconLocationRoot", @"SBIconLocationDock", @"SBIconLocationFolder", @"SBIconLocationRootWithWidgets", @"SBIconLocationFloatingDock"};
     patchLocations = [NSArray arrayWithObjects:temp count:5];
 
     folderImageCache = [[NSMutableDictionary alloc] init];

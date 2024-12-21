@@ -29,6 +29,12 @@ extern BOOL needsRefresh;
 extern BOOL shouldPatchFolderIcon;
 // determines whether we already checked if folder icons should be patched, only check once per reboot
 extern BOOL patchFoldersChecked;
+//used to determine if folder image generated correctly
+extern BOOL griddyImageSuccess;
+//custom user defaults under com.mikifp.griddy
+extern NSUserDefaults *userDefaults;
+//changes to yes after loading saved dictionary, used with folder preview optimization
+extern BOOL hasLoadedPrefs;
 
 typedef struct SBHIconGridSize {
     unsigned short columns;

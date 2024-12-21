@@ -58,13 +58,10 @@ BOOL checkValidIndexForIconSize(SBIconListGridCellInfo *info, SBHIconGridSize wr
     if (!(((NSUInteger)(writeIndex / cols) + writeSize.rows) <= (rows))) return NO;
     
     //check every spot on the widget and see if theres already an icon there
-    SBIconCoordinate coord = [info coordinateForGridCellIndex:writeIndex];
-    for (int k = 0; k < writeSize.rows ; k++) {
-        for (int j = 0; j < writeSize.columns; j++) {
-            SBIconCoordinate tempCoord;
-            tempCoord.column = coord.column + j;
-            tempCoord.row = coord.row + k;
-            if ([info iconIndexForGridCellIndex:[info gridCellIndexForCoordinate:tempCoord]] < totalLength) return NO;
+    for (int j = 0; j < writeSize.rows ; j++) {
+        for (int k = 0; k < writeSize.columns; k++) {
+            NSUInteger tempIdx = (writeIndex + (j * info.gridSize.columns)) + k;
+            if ([info iconIndexForGridCellIndex:tempIdx] < totalLength) return NO;
         }
     }
 
@@ -155,7 +152,7 @@ NSArray *reorderIconListBasedOnCustomIndex(NSArray *iconList, int size) {
         tempDict[key] = [NSNumber numberWithUnsignedLongLong:((GriddyIconLocationPreferences *)locationPrefs[key]).index];
     }
 
-    [[NSUserDefaults standardUserDefaults] setObject:tempDict forKey:((screenOrientation == 0 ? @"GriddyPortraitSave" : @"GriddyLandscapeSave"))];
+    [userDefaults setObject:tempDict forKey:((screenOrientation == 0 ? @"GriddyPortraitSave" : @"GriddyLandscapeSave"))];
 
     return newList;
 }
@@ -287,16 +284,14 @@ NSArray *patchGridCellInfoForIconList(NSArray *staticIconList, SBIconListGridCel
 
         NSMutableArray <NSNumber *> *writeIndexList = [NSMutableArray new];
 
-        //go through and gra every grid index for the icon, whihc we will save as the specific icon index
-        SBIconCoordinate coord = [info coordinateForGridCellIndex:writeIndex];
+        //go through and grab every grid index for the icon, whihc we will save as the specific icon index
         for (int j = 0; j < writeSize.rows; j++) {
             for (int k = 0; k < writeSize.columns; k++) {
-                SBIconCoordinate tempCoord;
-                tempCoord.column = coord.column + k;
-                tempCoord.row = coord.row + j;
-                [writeIndexList addObject:[NSNumber numberWithUnsignedLongLong:[info gridCellIndexForCoordinate:tempCoord]]];
+                NSUInteger tempIdx = (writeIndex + (model.gridSize.columns * j)) + k;
+                [writeIndexList addObject:[NSNumber numberWithUnsignedLongLong:tempIdx]];
             }
         }
+        
 
         //convert the index in the icon list(ordered by priority) to the actual list that is saved on the SBIconListModel instance
         int realIdx = [staticIconList indexOfObject:icon];
@@ -387,9 +382,9 @@ BOOL determineFolderPatching() {
 }
 //moving save data over to it's own .plist
 void transferGriddySave() {
-    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
-    portraitSavedDict = [userDefaults dictionaryForKey:@"GriddyPortraitSave"];
-    landscapeSavedDict = [userDefaults dictionaryForKey:@"GriddyLandscapeSave"];
+    NSUserDefaults *oldUserDefaults = [NSUserDefaults standardUserDefaults];
+    portraitSavedDict = [oldUserDefaults dictionaryForKey:@"GriddyPortraitSave"];
+    landscapeSavedDict = [oldUserDefaults dictionaryForKey:@"GriddyLandscapeSave"];
 
     NSUserDefaults *newUserDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.mikifp.griddy"];
     NSMutableDictionary *tempDict = [[NSMutableDictionary alloc] init];
@@ -406,15 +401,18 @@ void transferGriddySave() {
     }
     [newUserDefaults setObject:tempDict forKey:@"GriddyLandscapeSave"];
 
-    [userDefaults removeObjectForKey:@"GriddyPortraitSave"];
-    [userDefaults removeObjectForKey:@"GriddyLandscapeSave"];
+    [oldUserDefaults removeObjectForKey:@"GriddyPortraitSave"];
+    [oldUserDefaults removeObjectForKey:@"GriddyLandscapeSave"];
 }
 
 //generate new image for a folder icon
 //code is essentially the same as it used to be
 //however, version 1.0.4 caches the generated images and only creates a new one if it needs to
 SBIconGridImage *generateNewFolderImageForModel(SBIconListModel *model, SBIconGridImage *gridImageRef, SBFolderIconImageCache *imageCache, SBIconListGridLayout *miniIconLayout) {
-    
+    griddyImageSuccess = YES;
+
+    if (!hasLoadedPrefs) griddyImageSuccess = NO;
+
     NSMapTable *miniGridImages = [imageCache valueForKey:@"_cachedMiniGridImages"];
 
     SBHFolderIconVisualConfiguration *miniIconConfiguration = miniIconLayout.folderIconVisualConfiguration;
@@ -429,25 +427,32 @@ SBIconGridImage *generateNewFolderImageForModel(SBIconListModel *model, SBIconGr
 
     UIGraphicsBeginImageContextWithOptions(newSize, NO, gridImageRef.scale);
 
-    if (UIGraphicsGetCurrentContext() == nil) return nil;
+    if (UIGraphicsGetCurrentContext() == nil) {
+        griddyImageSuccess = NO;
+        return gridImageRef;
+    }
 
     for(SBIcon *icon in model.icons) {
         GriddyIconLocationPreferences *prefs = locationPrefs[icon.uniqueIdentifier];
-        if (prefs == nil) continue;
+        if (prefs == nil) {
+            griddyImageSuccess = NO;
+            continue;
+        }
 
         int row = prefs.index / gridImageRef.numberOfRows;
         int col = prefs.index % gridImageRef.numberOfColumns;
 
         UIImage *img = [miniGridImages objectForKey:icon];
         
-        if (img == nil) img = [imageCache valueForKey:@"_genericMiniGridImage"];
-        if (img == nil) continue;
+        if (img == nil) {
+            img = [imageCache valueForKey:@"_genericMiniGridImage"];
+            continue;
+        }
 
         [img drawInRect:CGRectMake(col * perIconSpace.width, row * perIconSpace.height, size.width, size.height)];
     }
 
     UIImage *newImg = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
-
     return [gridImageRef initWithCGImage:newImg.CGImage scale:gridImageRef.scale orientation:UIImageOrientationUp];
 }
